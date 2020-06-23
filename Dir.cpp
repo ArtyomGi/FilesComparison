@@ -2,20 +2,20 @@
 #include "File.h"
 #include "Hash.h"
 
-vector<vector<QFileInfo>> Dir::fileIntersection(const Dir& anotherDir, bool unique, QCryptographicHash::Algorithm alg) const
+deque<deque<QFileInfo>> Dir::fileIntersection(const Dir& anotherDir, bool unique, QCryptographicHash::Algorithm alg) const
 {
-	if (!exists() || !anotherDir.exists()) return vector<vector<QFileInfo>>();
+    if (!exists() || !anotherDir.exists()) return deque<deque<QFileInfo>>();
 
 	QFileInfoList files = entryInfoList(QDir::Files);
 
 	qint64 size;
-	map<qint64, vector<QFileInfo>> FileSizes;
+    map<qint64, deque<QFileInfo>> FileSizes;
 
 	for (const auto& f : files) // map of sizes of files not to calculate hash for every file in dir
 	{
 		size = f.size();
 
-		FileSizes.emplace(make_pair(size, vector<QFileInfo>()));
+        FileSizes.emplace(make_pair(size, deque<QFileInfo>()));
 		FileSizes[size].push_back(f);
 	}
 
@@ -25,11 +25,11 @@ vector<vector<QFileInfo>> Dir::fileIntersection(const Dir& anotherDir, bool uniq
 	{
 		size = f.size();
 
-		FileSizes.emplace(make_pair(size, vector<QFileInfo>()));
+        FileSizes.emplace(make_pair(size, deque<QFileInfo>()));
 		FileSizes[size].push_back(f);
 	}
 
-	map<Hash, vector<QFileInfo>> Hashes;
+    map<Hash, deque<QFileInfo>> Hashes;
 	File temp;
 
 	for (const auto& FiltFile : FileSizes)
@@ -43,7 +43,7 @@ vector<vector<QFileInfo>> Dir::fileIntersection(const Dir& anotherDir, bool uniq
 
 				Hash h = temp.getHash(alg); // calculate hash for that files
 
-				Hashes.emplace(make_pair(h, vector<QFileInfo>()));
+                Hashes.emplace(make_pair(h, deque<QFileInfo>()));
 				Hashes[h].push_back(file);
 
 				temp.close();
@@ -51,8 +51,8 @@ vector<vector<QFileInfo>> Dir::fileIntersection(const Dir& anotherDir, bool uniq
 		}
 	}
 
-	vector<QFileInfo> intersFiles;
-	vector<vector<QFileInfo>> result;
+    deque<QFileInfo> intersFiles;
+    deque<deque<QFileInfo>> result;
 	bool check = false;
 	QString strCheck;
 

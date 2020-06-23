@@ -1,7 +1,7 @@
 #pragma once
 #include <QDir>
 #include <QCryptographicHash>
-#include <vector>
+#include <deque>
 
 using namespace std;
 
@@ -17,6 +17,6 @@ public:
 		SortFlags sort = SortFlags(Name | IgnoreCase), Filters filter = AllEntries) :
 		QDir(path, nameFilter, sort, filter) {};
 
-	vector<vector<QFileInfo>> fileIntersection(const Dir&, bool unique = false,
+    deque<deque<QFileInfo>> fileIntersection(const Dir&, bool unique = false,
 		QCryptographicHash::Algorithm alg = QCryptographicHash::Algorithm::Md5) const;
 };

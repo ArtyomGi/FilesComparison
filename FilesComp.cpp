@@ -159,6 +159,7 @@ void FilesComp::find()
 	}
 
 	resultWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    resultWidget->setEditTriggers(QAbstractItemView::NoEditTriggers);
 	resultWidget->resizeColumnsToContents();
 	
 	resultWidget->show();
