@@ -17,6 +17,6 @@ public:
 		SortFlags sort = SortFlags(Name | IgnoreCase), Filters filter = AllEntries) :
 		QDir(path, nameFilter, sort, filter) {};
 
-    deque<deque<QFileInfo>> fileIntersection(const Dir&, bool unique = false,
-		QCryptographicHash::Algorithm alg = QCryptographicHash::Algorithm::Md5) const;
+	list<list<QFileInfo>> fileIntersection(const Dir&, bool unique = false,
+		bool subDirs = false) const;
 };

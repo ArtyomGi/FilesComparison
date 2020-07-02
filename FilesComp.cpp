@@ -5,6 +5,8 @@
 #include <QGroupBox>
 #include <QTableView>
 #include <set>
+#include <map>
+#include <fstream>
 
 FilesComp::FilesComp(QWidget *parent)
 	: QWidget(parent)
@@ -16,27 +18,32 @@ FilesComp::FilesComp(QWidget *parent)
 
 void FilesComp::createInterface()
 {
-	QGroupBox* algBox = new QGroupBox(tr("Algorithm"));
+	//QGroupBox* algBox = new QGroupBox(tr("Algorithm"));
 
-	md5RBtn = new QRadioButton(tr("&MD5"));
+	/*md5RBtn = new QRadioButton(tr("&MD5"));
 	md5RBtn->setChecked(true);
 	sha1RBtn = new QRadioButton(tr("&SHA1"));
-	sha256RBtn = new QRadioButton(tr("S&HA256"));
+	sha256RBtn = new QRadioButton(tr("S&HA256"));*/
 
-	QVBoxLayout* algLayout = new QVBoxLayout;
+	/*QVBoxLayout* algLayout = new QVBoxLayout;
 	algLayout->addWidget(md5RBtn);
 	algLayout->addWidget(sha1RBtn);
-	algLayout->addWidget(sha256RBtn);
+	algLayout->addWidget(sha256RBtn);*/
 
-	algBox->setLayout(algLayout);
+	//algBox->setLayout(algLayout);
 
 	uniqueCBox = new QCheckBox(tr("Show identical files in same dir"));
+	subDirsCBox = new QCheckBox(tr("Include subdirectories"));
 
+	/*QVBoxLayout* CheckBoxLayout = new QVBoxLayout;
+	CheckBoxLayout->addWidget(uniqueCBox);
+	CheckBoxLayout->addWidget(subDirsCBox);*/
 
 	QHBoxLayout* topLayout = new QHBoxLayout;
-	topLayout->addWidget(algBox, 1);
-	topLayout->addStretch();
+	//topLayout->addWidget(algBox, 1);
+	//topLayout->addStretch();
 	topLayout->addWidget(uniqueCBox);
+	topLayout->addWidget(subDirsCBox);
 
 	findBtn = new QPushButton(tr("Find binary identical files"));
 	findBtn->setDisabled(true);
@@ -80,11 +87,12 @@ void FilesComp::createInterface()
 
 void FilesComp::connectInit()
 {
-	connect(md5RBtn, SIGNAL(toggled(bool)), this, SLOT(algChanged(bool)));
+	/*connect(md5RBtn, SIGNAL(toggled(bool)), this, SLOT(algChanged(bool)));
 	connect(sha1RBtn, SIGNAL(toggled(bool)), this, SLOT(algChanged(bool)));
-	connect(sha256RBtn, SIGNAL(toggled(bool)), this, SLOT(algChanged(bool)));
+	connect(sha256RBtn, SIGNAL(toggled(bool)), this, SLOT(algChanged(bool)));*/
 
 	connect(uniqueCBox, SIGNAL(stateChanged(int)), this, SLOT(uniqueChanged(int)));
+	connect(subDirsCBox, SIGNAL(stateChanged(int)), this, SLOT(subDirChanged(int)));
 
 	connect(findBtn, SIGNAL(clicked()), this, SLOT(find()));
 
@@ -98,12 +106,18 @@ void FilesComp::uniqueChanged(int state)
 	else uniqueFiles = true;
 }
 
-void FilesComp::algChanged(bool state)
+void FilesComp::subDirChanged(int state)
 {
-	if (md5RBtn->isChecked()) alg = QCryptographicHash::Algorithm::Md5;
-	else if (sha1RBtn->isChecked()) alg = QCryptographicHash::Algorithm::Sha1;
-	else alg = QCryptographicHash::Algorithm::Sha256;
+	if (state == Qt::CheckState::Checked) subDirs = true;
+	else subDirs = false;
 }
+
+//void FilesComp::algChanged(bool state)
+//{
+//	if (md5RBtn->isChecked()) alg = QCryptographicHash::Algorithm::Md5;
+//	else if (sha1RBtn->isChecked()) alg = QCryptographicHash::Algorithm::Sha1;
+//	else alg = QCryptographicHash::Algorithm::Sha256;
+//}
 
 void FilesComp::treeClicked(const QModelIndex& index)
 {
@@ -117,52 +131,90 @@ void FilesComp::find()
 	QString leftPath = leftFileModel->filePath(leftTree->selectionModel()->currentIndex());
 	QString rightPath = rightFileModel->filePath(rightTree->selectionModel()->currentIndex());
 	Dir leftDir(leftPath);
-	auto res = leftDir.fileIntersection(rightPath, uniqueFiles, alg);
+	//auto res = leftDir.fileIntersection(rightPath, uniqueFiles, alg);
+	auto res = leftDir.fileIntersection(rightPath, uniqueFiles, subDirs);
 
-	QTableWidget* resultWidget = new QTableWidget;
-
-	resultWidget->setWindowTitle(tr("Result of comparing"));
-	resultWidget->setColumnCount(2);
-	resultWidget->setHorizontalHeaderLabels(QStringList()
-		<< leftPath
-		<< rightPath);
-
-	int leftRow = 0, rightRow = 0;
-	set<QString> preventDuplicates;
-
-	for (const auto& group : res) // fill the table
+	if (subDirs)
 	{
-		for (const auto& item : group)
-		{
-			if (rightPath == leftPath) // check if result vector have duplicates
-			{
-				if (preventDuplicates.find(item.absoluteFilePath()) != preventDuplicates.end())
-					continue; // if we have already created row with that file then skip it
-				else preventDuplicates.insert(item.absoluteFilePath());
-			}
-			if (item.absolutePath() == leftPath)
-			{
-				if(leftRow >= rightRow) resultWidget->insertRow(resultWidget->rowCount());
-				resultWidget->setItem(leftRow, 0, new QTableWidgetItem(item.absoluteFilePath()));
-				leftRow++;
-			}
-			if(item.absolutePath() == rightPath)
-			{
-				if (rightRow >= leftRow) resultWidget->insertRow(resultWidget->rowCount());
-				resultWidget->setItem(rightRow, 1, new QTableWidgetItem(item.absoluteFilePath()));
-				rightRow++;
-			}
-		}
-		preventDuplicates.clear();
-		leftRow = rightRow = std::max(leftRow, rightRow) + 1;
-		resultWidget->insertRow(resultWidget->rowCount());
-	}
+		QTreeWidget* resultWidget = new QTreeWidget();
+		resultWidget->setWindowTitle(tr("Result of comparing"));
+		resultWidget->setColumnCount(1);
 
-	resultWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    resultWidget->setEditTriggers(QAbstractItemView::NoEditTriggers);
-	resultWidget->resizeColumnsToContents();
-	
-	resultWidget->show();
+		int currRow = 0;
+		set<QString> preventDuplicates;
+
+		for (const auto& group : res) // fill the tree
+		{
+			QTreeWidgetItem* topLevel = new QTreeWidgetItem(resultWidget);
+			topLevel->setText(0, QString::number(currRow + 1));
+
+			for (const auto& item : group)
+			{
+				if (rightPath == leftPath) // check if result vector have duplicates
+				{
+					if (preventDuplicates.find(item.absoluteFilePath()) != preventDuplicates.end())
+						continue; // if we have already created row with that file then skip it
+					else preventDuplicates.insert(item.absoluteFilePath());
+				}
+				
+				QTreeWidgetItem* subElem = new QTreeWidgetItem(topLevel);
+				subElem->setText(0, item.absoluteFilePath());
+			}
+
+			preventDuplicates.clear();
+			currRow++;
+		}
+
+		resultWidget->setEditTriggers(QAbstractItemView::NoEditTriggers);
+		resultWidget->show();
+	}
+	else
+	{
+		QTableWidget* resultWidget = new QTableWidget;
+
+		resultWidget->setWindowTitle(tr("Result of comparing"));
+		resultWidget->setColumnCount(2);
+		resultWidget->setHorizontalHeaderLabels(QStringList()
+			<< leftPath
+			<< rightPath);
+
+		int leftRow = 0, rightRow = 0;
+		set<QString> preventDuplicates;
+
+		for (const auto& group : res) // fill the table
+		{
+			for (const auto& item : group)
+			{
+				if (rightPath == leftPath) // check if result vector have duplicates
+				{
+					if (preventDuplicates.find(item.absoluteFilePath()) != preventDuplicates.end())
+						continue; // if we have already created row with that file then skip it
+					else preventDuplicates.insert(item.absoluteFilePath());
+				}
+				if (item.absolutePath() == leftPath)
+				{
+					if (leftRow >= rightRow) resultWidget->insertRow(resultWidget->rowCount());
+					resultWidget->setItem(leftRow, 0, new QTableWidgetItem(item.absoluteFilePath()));
+					leftRow++;
+				}
+				if (item.absolutePath() == rightPath)
+				{
+					if (rightRow >= leftRow) resultWidget->insertRow(resultWidget->rowCount());
+					resultWidget->setItem(rightRow, 1, new QTableWidgetItem(item.absoluteFilePath()));
+					rightRow++;
+				}
+			}
+			preventDuplicates.clear();
+			leftRow = rightRow = std::max(leftRow, rightRow) + 1;
+			resultWidget->insertRow(resultWidget->rowCount());
+		}
+
+		resultWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+		resultWidget->setEditTriggers(QAbstractItemView::NoEditTriggers);
+		resultWidget->resizeColumnsToContents();
+
+		resultWidget->show();
+	}
 }
 
 void FilesComp::closeEvent(QCloseEvent* event)

@@ -1,79 +1,117 @@
 #include "Dir.h"
 #include "File.h"
-#include "Hash.h"
+#include <fstream>
+#include <QDirIterator>
 
-deque<deque<QFileInfo>> Dir::fileIntersection(const Dir& anotherDir, bool unique, QCryptographicHash::Algorithm alg) const
+template<typename InputIterator1, typename InputIterator2>
+bool range_equal(InputIterator1 first1, InputIterator1 last1,
+	InputIterator2 first2, InputIterator2 last2)
 {
-    if (!exists() || !anotherDir.exists()) return deque<deque<QFileInfo>>();
+	while (first1 != last1 && first2 != last2)
+	{
+		if (*first1 != *first2) return false;
+		++first1;
+		++first2;
+	}
+	return (first1 == last1) && (first2 == last2);
+}
 
-	QFileInfoList files = entryInfoList(QDir::Files);
+list<list<QFileInfo>> Dir::fileIntersection(const Dir& anotherDir, bool unique, bool subDirs) const
+{
+    if (!exists() || !anotherDir.exists()) return list<list<QFileInfo>>();
+
+	QDirIterator::IteratorFlags flags = QDirIterator::NoIteratorFlags;
+
+	if (subDirs) flags = QDirIterator::Subdirectories;
+	
+	QDirIterator it(this->absolutePath(), QDir::Files, flags);
 
 	qint64 size;
-    map<qint64, deque<QFileInfo>> FileSizes;
+    map<qint64, list<QFileInfo>> FileSizes;
 
-	for (const auto& f : files) // map of sizes of files not to calculate hash for every file in dir
+
+	while(it.hasNext())
 	{
-		size = f.size();
+		it.next();
+		size = it.fileInfo().size();
 
-        FileSizes.emplace(make_pair(size, deque<QFileInfo>()));
-		FileSizes[size].push_back(f);
+		FileSizes.emplace(make_pair(size, list<QFileInfo>()));
+		FileSizes[size].push_back(it.fileInfo());
 	}
 
-	files = anotherDir.entryInfoList(QDir::Files);
+	QDirIterator it2(anotherDir.absolutePath(), QDir::Files, flags);
 
-	for (const auto& f : files)
+	while (it2.hasNext())
 	{
-		size = f.size();
+		it2.next();
+		size = it2.fileInfo().size();
 
-        FileSizes.emplace(make_pair(size, deque<QFileInfo>()));
-		FileSizes[size].push_back(f);
+		FileSizes.emplace(make_pair(size, list<QFileInfo>()));
+		FileSizes[size].push_back(it2.fileInfo());
 	}
 
-    map<Hash, deque<QFileInfo>> Hashes;
-	File temp;
+	list<QFileInfo> equalFiles;
+	list<list<QFileInfo>> res;
 
-	for (const auto& FiltFile : FileSizes)
+	for (auto& FiltFile : FileSizes)
 	{
 		if (FiltFile.second.size() > 1) // if two or more files have same size
 		{
-			for (const auto& file : FiltFile.second)
+			for (auto file = FiltFile.second.begin(); file != FiltFile.second.end(); file++)
 			{
-				temp.setFileName(file.absoluteFilePath());
-				temp.open(QIODevice::ReadOnly);
+				ifstream fileStream(file->absoluteFilePath().toStdString(), ios_base::binary);
+				if (!fileStream.is_open()) continue;
 
-				Hash h = temp.getHash(alg); // calculate hash for that files
+				istreambuf_iterator<char> ii1(fileStream);
+				istreambuf_iterator<char> end;
 
-                Hashes.emplace(make_pair(h, deque<QFileInfo>()));
-				Hashes[h].push_back(file);
+				for (auto fileComp = file; fileComp != FiltFile.second.end();)
+				{
+					if (*file == *fileComp)
+					{
+						fileComp++;
+						continue;
+					}
+					
+					if (unique && (file->absoluteDir() == fileComp->absoluteDir()))
+					{
+						fileComp++;
+						continue;
+					}
 
-				temp.close();
+					ifstream fileCompStream(fileComp->absoluteFilePath().toStdString(), ios_base::binary);
+					if (!fileCompStream.is_open())
+					{
+						fileComp++;
+						continue;
+					}
+					istreambuf_iterator<char> ii2(fileCompStream);
+					fileStream.seekg(0);
+
+					if (range_equal(ii1, end, ii2, end))
+					{
+						equalFiles.push_back(*fileComp);
+						fileComp = FiltFile.second.erase(fileComp);
+					}
+					else
+					{
+						fileComp++;
+					}
+
+					fileCompStream.close();
+				}
+				
+				fileStream.close();
+
+				if (equalFiles.size())
+				{
+					equalFiles.push_back(*file);
+					res.push_back(equalFiles);
+					equalFiles.clear();
+				}
 			}
 		}
 	}
 
-    deque<QFileInfo> intersFiles;
-    deque<deque<QFileInfo>> result;
-	bool check = false;
-	QString strCheck;
-
-	for (const auto& hash : Hashes)
-	{
-		if (hash.second.size() > 1) // if two or more files have same hash
-		{
-			strCheck = hash.second[0].absolutePath();
-			for (const auto& file : hash.second)
-			{
-				intersFiles.push_back(file); // generating a result
-				if (unique && !check && strCheck != file.absolutePath()) check = true;
-			}
-
-			if ((unique && check) || !unique || (absolutePath() == anotherDir.absolutePath()))
-				result.push_back(intersFiles);
-
-			intersFiles.clear();
-			check = false;
-		}
-	}
-
-	return result;
+	return res;
 }
