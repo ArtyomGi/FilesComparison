@@ -1,5 +1,6 @@
 #include "FilesComp.h"
 #include "Dir.h"
+#include "ComparisonWorker.h"
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QGroupBox>
@@ -12,6 +13,7 @@ FilesComp::FilesComp(QWidget *parent)
 	: QWidget(parent)
 {
 	setWindowTitle("Files Comparison");
+	qRegisterMetaType<ComparisonResult>();
 	createInterface();
 	connectInit();
 }
@@ -76,11 +78,14 @@ void FilesComp::createInterface()
 	treeLayout->addWidget(leftTree);
 	treeLayout->addWidget(rightTree);
 	
+	statusLabel = new QLabel(tr("Status: Ready"));
+
 	QVBoxLayout* mainLayout = new QVBoxLayout;
 	mainLayout->addLayout(topLayout);
 	mainLayout->addWidget(infoLabel);
 	mainLayout->addLayout(treeLayout, 3);
 	mainLayout->addWidget(findBtn);
+	mainLayout->addWidget(statusLabel);
 	
 	setLayout(mainLayout);
 }
@@ -130,90 +135,138 @@ void FilesComp::find()
 {
 	QString leftPath = leftFileModel->filePath(leftTree->selectionModel()->currentIndex());
 	QString rightPath = rightFileModel->filePath(rightTree->selectionModel()->currentIndex());
-	Dir leftDir(leftPath);
-	//auto res = leftDir.fileIntersection(rightPath, uniqueFiles, alg);
-	auto res = leftDir.fileIntersection(rightPath, uniqueFiles, subDirs);
 
-	if (subDirs)
+	ComparisonWorker* compWorker = new ComparisonWorker(uniqueFiles, subDirs);
+	compWorker->setDirs(leftPath, rightPath);
+	
+	QThread* thread = new QThread;
+	compWorker->moveToThread(thread);
+
+	connect(thread, SIGNAL(started()), compWorker, SLOT(compare()));
+	connect(compWorker, SIGNAL(finished()), thread, SLOT(quit()));
+	connect(compWorker, SIGNAL(finished()), compWorker, SLOT(deleteLater()));
+	connect(thread, SIGNAL(finished()), thread, SLOT(deleteLater()));
+
+	connect(compWorker, SIGNAL(compareFinish(ComparisonResult)), this, SLOT(onCompareFinished(ComparisonResult)));
+	connect(compWorker, SIGNAL(progressStatus(int)), this, SLOT(statusChanged(int)));
+	
+	thread->start();
+}
+
+void FilesComp::onCompareFinished(ComparisonResult result)
+{
+	if (result.subDirs)
+		createTreeViewer(result);
+	else createTableViewer(result);
+}
+
+void FilesComp::createTreeViewer(const ComparisonResult& result)
+{
+	QString leftPath = result.dir1;
+	QString rightPath = result.dir2;
+
+	QTreeWidget* resultWidget = new QTreeWidget();
+	resultWidget->setWindowTitle(tr("Result of comparing"));
+	resultWidget->setColumnCount(1);
+	resultWidget->setHeaderLabels(QStringList() << "Files");
+
+	int currRow = 0;
+	set<QString> preventDuplicates;
+
+	auto files = result.result;
+
+	for (const auto& group : files) // fill the tree
 	{
-		QTreeWidget* resultWidget = new QTreeWidget();
-		resultWidget->setWindowTitle(tr("Result of comparing"));
-		resultWidget->setColumnCount(1);
+		QTreeWidgetItem* topLevel = new QTreeWidgetItem(resultWidget);
+		topLevel->setText(0, QString::number(currRow + 1));
 
-		int currRow = 0;
-		set<QString> preventDuplicates;
-
-		for (const auto& group : res) // fill the tree
+		for (const auto& item : group)
 		{
-			QTreeWidgetItem* topLevel = new QTreeWidgetItem(resultWidget);
-			topLevel->setText(0, QString::number(currRow + 1));
-
-			for (const auto& item : group)
+			if (rightPath == leftPath) // check if result vector have duplicates
 			{
-				if (rightPath == leftPath) // check if result vector have duplicates
-				{
-					if (preventDuplicates.find(item.absoluteFilePath()) != preventDuplicates.end())
-						continue; // if we have already created row with that file then skip it
-					else preventDuplicates.insert(item.absoluteFilePath());
-				}
-				
-				QTreeWidgetItem* subElem = new QTreeWidgetItem(topLevel);
-				subElem->setText(0, item.absoluteFilePath());
+				if (preventDuplicates.find(item.absoluteFilePath()) != preventDuplicates.end())
+					continue; // if we have already created row with that file then skip it
+				else preventDuplicates.insert(item.absoluteFilePath());
 			}
 
-			preventDuplicates.clear();
-			currRow++;
+			QTreeWidgetItem* subElem = new QTreeWidgetItem(topLevel);
+			subElem->setText(0, item.absoluteFilePath());
 		}
 
-		resultWidget->setEditTriggers(QAbstractItemView::NoEditTriggers);
-		resultWidget->show();
+		preventDuplicates.clear();
+		currRow++;
+	}
+
+	resultWidget->setEditTriggers(QAbstractItemView::NoEditTriggers);
+	resultWidget->show();
+}
+
+void FilesComp::createTableViewer(const ComparisonResult& result)
+{
+	QString leftPath = result.dir1;
+	QString rightPath = result.dir2;
+
+	QTableWidget* resultWidget = new QTableWidget;
+
+	resultWidget->setWindowTitle(tr("Result of comparing"));
+	resultWidget->setColumnCount(2);
+	resultWidget->setHorizontalHeaderLabels(QStringList()
+		<< leftPath
+		<< rightPath);
+
+	int leftRow = 0, rightRow = 0;
+	set<QString> preventDuplicates;
+
+	auto files = result.result;
+
+	for (const auto& group : files) // fill the table
+	{
+		for (const auto& item : group)
+		{
+			if (rightPath == leftPath) // check if result vector have duplicates
+			{
+				if (preventDuplicates.find(item.absoluteFilePath()) != preventDuplicates.end())
+					continue; // if we have already created row with that file then skip it
+				else preventDuplicates.insert(item.absoluteFilePath());
+			}
+			if (item.absolutePath() == leftPath)
+			{
+				if (leftRow >= rightRow) resultWidget->insertRow(resultWidget->rowCount());
+				resultWidget->setItem(leftRow, 0, new QTableWidgetItem(item.absoluteFilePath()));
+				leftRow++;
+			}
+			if (item.absolutePath() == rightPath)
+			{
+				if (rightRow >= leftRow) resultWidget->insertRow(resultWidget->rowCount());
+				resultWidget->setItem(rightRow, 1, new QTableWidgetItem(item.absoluteFilePath()));
+				rightRow++;
+			}
+		}
+		preventDuplicates.clear();
+		leftRow = rightRow = std::max(leftRow, rightRow) + 1;
+		resultWidget->insertRow(resultWidget->rowCount());
+	}
+
+	resultWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+	resultWidget->setEditTriggers(QAbstractItemView::NoEditTriggers);
+	resultWidget->resizeColumnsToContents();
+
+	resultWidget->show();
+}
+
+void FilesComp::statusChanged(int newStatus)
+{
+	if (newStatus)
+	{
+		workingNumber++;
+		statusLabel->setText(QString("Status: Working (%1)...").arg(workingNumber));
 	}
 	else
 	{
-		QTableWidget* resultWidget = new QTableWidget;
+		workingNumber--;
 
-		resultWidget->setWindowTitle(tr("Result of comparing"));
-		resultWidget->setColumnCount(2);
-		resultWidget->setHorizontalHeaderLabels(QStringList()
-			<< leftPath
-			<< rightPath);
-
-		int leftRow = 0, rightRow = 0;
-		set<QString> preventDuplicates;
-
-		for (const auto& group : res) // fill the table
-		{
-			for (const auto& item : group)
-			{
-				if (rightPath == leftPath) // check if result vector have duplicates
-				{
-					if (preventDuplicates.find(item.absoluteFilePath()) != preventDuplicates.end())
-						continue; // if we have already created row with that file then skip it
-					else preventDuplicates.insert(item.absoluteFilePath());
-				}
-				if (item.absolutePath() == leftPath)
-				{
-					if (leftRow >= rightRow) resultWidget->insertRow(resultWidget->rowCount());
-					resultWidget->setItem(leftRow, 0, new QTableWidgetItem(item.absoluteFilePath()));
-					leftRow++;
-				}
-				if (item.absolutePath() == rightPath)
-				{
-					if (rightRow >= leftRow) resultWidget->insertRow(resultWidget->rowCount());
-					resultWidget->setItem(rightRow, 1, new QTableWidgetItem(item.absoluteFilePath()));
-					rightRow++;
-				}
-			}
-			preventDuplicates.clear();
-			leftRow = rightRow = std::max(leftRow, rightRow) + 1;
-			resultWidget->insertRow(resultWidget->rowCount());
-		}
-
-		resultWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-		resultWidget->setEditTriggers(QAbstractItemView::NoEditTriggers);
-		resultWidget->resizeColumnsToContents();
-
-		resultWidget->show();
+		if(workingNumber) statusLabel->setText(QString("Status: Working (%1)...").arg(workingNumber));
+		else  statusLabel->setText(tr("Status: Ready"));
 	}
 }
 

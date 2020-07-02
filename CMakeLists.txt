@@ -19,10 +19,9 @@ add_executable(FilesComparison
   FilesComp.cpp
   Dir.h
   Dir.cpp
-  File.h
-  File.cpp
-  Hash.h
-  Hash.cpp
+  ComparisonWorker.h
+  ComparisonWorker.cpp
+  ComparisonResult.h
 )
 
 target_link_libraries(FilesComparison PRIVATE Qt5::Widgets)

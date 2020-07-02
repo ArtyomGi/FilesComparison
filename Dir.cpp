@@ -1,5 +1,4 @@
 #include "Dir.h"
-#include "File.h"
 #include <fstream>
 #include <QDirIterator>
 
@@ -16,9 +15,10 @@ bool range_equal(InputIterator1 first1, InputIterator1 last1,
 	return (first1 == last1) && (first2 == last2);
 }
 
-list<list<QFileInfo>> Dir::fileIntersection(const Dir& anotherDir, bool unique, bool subDirs) const
+ComparisonResult Dir::fileIntersection(const Dir& anotherDir, bool unique, bool subDirs) const
 {
-    if (!exists() || !anotherDir.exists()) return list<list<QFileInfo>>();
+	if (!exists() || !anotherDir.exists())
+		return ComparisonResult(list<list<QFileInfo>>(), this->absolutePath(), anotherDir.absolutePath(), unique, subDirs);
 
 	QDirIterator::IteratorFlags flags = QDirIterator::NoIteratorFlags;
 
@@ -85,6 +85,7 @@ list<list<QFileInfo>> Dir::fileIntersection(const Dir& anotherDir, bool unique, 
 						fileComp++;
 						continue;
 					}
+
 					istreambuf_iterator<char> ii2(fileCompStream);
 					fileStream.seekg(0);
 
@@ -113,5 +114,6 @@ list<list<QFileInfo>> Dir::fileIntersection(const Dir& anotherDir, bool unique, 
 		}
 	}
 
-	return res;
+	ComparisonResult result(res, this->absolutePath(), anotherDir.absolutePath(), unique, subDirs);
+	return result;
 }
