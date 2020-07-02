@@ -1,7 +1,8 @@
 #pragma once
 #include <QDir>
 #include <QCryptographicHash>
-#include <deque>
+#include <list>
+#include "ComparisonResult.h"
 
 using namespace std;
 
@@ -17,6 +18,5 @@ public:
 		SortFlags sort = SortFlags(Name | IgnoreCase), Filters filter = AllEntries) :
 		QDir(path, nameFilter, sort, filter) {};
 
-    deque<deque<QFileInfo>> fileIntersection(const Dir&, bool unique = false,
-		QCryptographicHash::Algorithm alg = QCryptographicHash::Algorithm::Md5) const;
+	ComparisonResult fileIntersection(const Dir&, bool, bool) const;
 };
